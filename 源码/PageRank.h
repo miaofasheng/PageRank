@@ -22,6 +22,7 @@ private:
     /* data structure */
     std::unordered_map<int, std::unordered_set<int>> graph;
     std::unordered_map<int, rank_type> node_rank;
+    int nr_node;
     /**
      * 处理数据
      */

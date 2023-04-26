@@ -2,6 +2,7 @@ cc = g++
 prom = pagerank
 deps = $(shell find ./ -name "*.h")
 src = $(shell find ./ -name "*.cpp")
+blocks = $(shell find ./ -name "block*")
 obj = $(src:%.cpp=%.o)
 
 FLAG = -lpthread -std=c++17
@@ -17,4 +18,4 @@ run: $(prom)
 
 
 clean:
-	@ rm -rf $(obj) $(prom)
+	@ rm -rf $(obj) $(prom) $(blocks)

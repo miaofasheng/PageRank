@@ -4,39 +4,96 @@
 #include <iomanip>
 #include <iostream>
 #include <fstream>
+#include <sstream>
 #include <chrono>
 #include <thread>
 #include <mutex>
 
-#define MULTITHREAD
+std::map<int, std::mutex> node2mutex;
 
 void PageRank::process_data()
 {
+    std::ifstream input;
+    int from_node, to_node;
+
     if (block_num == 1)
     {
-        std::ifstream input;
         input.open(input_file);
         while (!input.eof())
         {
-            int from_node, to_node;
             input >> from_node >> to_node;
-            // std::cout << from_node << ' ' << to_node << std::endl;
             graph[from_node].insert(to_node);
             graph[to_node];
         }
         input.close();
+        nr_node = graph.size();
     }
     else
     {
-        /**
-         * TODO()
-         */
+        int max_node_num = 0;
+        int block_num = this->block_num;
+
+        input.open(input_file);
+        while (!input.eof())
+        {
+            input >> from_node >> to_node;
+            max_node_num = std::max(std::max(from_node, to_node), max_node_num);
+        }
+        input.close();
+
+        int step = max_node_num / block_num;
+
+        auto belong_file = [&](int node_num)
+        {
+            int file_num = node_num / step + 1;
+            file_num = std::min(file_num, block_num);
+            return file_num;
+        };
+
+        std::ofstream output;
+        for (int i = 1; i <= block_num; i++)
+        {
+            graph.clear();
+            input.open(input_file);
+            while (!input.eof())
+            {
+                input >> from_node >> to_node;
+                if (belong_file(from_node) == i)
+                    graph[from_node].insert(to_node);
+                if (belong_file(to_node) == i)
+                    graph[to_node];
+            }
+            nr_node += graph.size();
+            output.open("block" + std::to_string(i));
+            for (auto &edge : graph)
+            {
+                output << edge.first;
+                for (auto &to_node : edge.second)
+                {
+                    output << " " << to_node;
+                }
+                output << "\n";
+            }
+            input.close();
+            output.close();
+        }
+
+        std::string line;
+        std::stringstream ss;
+        for (int file_num = 1; file_num <= block_num; file_num++)
+        {
+            input.open("block" + std::to_string(file_num));
+            while (getline(input, line))
+            {
+                std::istringstream ss(line);
+                ss >> from_node;
+                node_rank[from_node] = 1.0 / nr_node;
+                node2mutex[from_node];
+            }
+            input.close();
+        }
     }
 }
-
-#ifdef MULTITHREAD
-
-std::map<int, std::mutex> node2mutex;
 
 static void update_rank(std::unordered_map<int, std::unordered_set<int>> &graph,
                         std::unordered_map<int, rank_type> &old_rank,
@@ -58,7 +115,7 @@ static void update_rank(std::unordered_map<int, std::unordered_set<int>> &graph,
     {
         int from_node = (*begin_it).first;
         int out_degree = (*begin_it).second.size();
-        for (auto to_node : (*begin_it).second)
+        for (auto &to_node : (*begin_it).second)
         {
             next_rank[to_node] += beta * (old_rank[from_node] / out_degree);
         }
@@ -72,8 +129,6 @@ static void update_rank(std::unordered_map<int, std::unordered_set<int>> &graph,
         node2mutex[node].unlock();
     }
 }
-
-#endif
 
 void PageRank::iter(std::unordered_map<int, rank_type> &next_rank)
 {
@@ -111,15 +166,13 @@ void PageRank::iter(std::unordered_map<int, rank_type> &next_rank)
 
 void PageRank::page_rank()
 {
-    int nr_node = graph.size();
-    /* 初始时每个节点的rank值为1/N */
-    for (auto &[from_node, to_nodes] : graph)
-    {
-        node_rank[from_node] = 1.0 / nr_node;
-#ifdef MULTITHREAD
-        node2mutex[from_node];
-#endif
-    }
+    /* 初始时每个节点的rank值为1/N，这里block_num不为1的时候在process_data中处理 */
+    if (block_num == 1)
+        for (auto &[from_node, to_nodes] : graph)
+        {
+            node_rank[from_node] = 1.0 / nr_node;
+            node2mutex[from_node];
+        }
     std::unordered_map<int, rank_type> next_rank;
     for (int i = 0; i < iteration; i++)
     {
@@ -134,9 +187,28 @@ void PageRank::page_rank()
         }
         else
         {
-            /**
-             * TODO()
-             */
+            int from_node, to_node;
+            std::ifstream input;
+            std::string line;
+            std::string node;
+            int num = 0;
+            for (int file_num = 1; file_num <= block_num; file_num++)
+            {
+                graph.clear();
+                input.open("block" + std::to_string(file_num));
+                while (getline(input, line))
+                {
+                    std::istringstream ss(line);
+                    ss >> from_node;
+                    graph[from_node];
+                    while (ss >> to_node)
+                    {
+                        graph[from_node].insert(to_node);
+                    }
+                }
+                input.close();
+                iter(next_rank);
+            }
         }
         /* 远程传播 */
         rank_type sum = 0, inc = 0;
@@ -184,6 +256,7 @@ PageRank::PageRank(double beta, int block_num, int iteration,
       topn(topn), thread_num(thread_num),
       input_file(input_file), output_file(output_file)
 {
+    nr_node = 0;
 }
 
 void PageRank::process()
